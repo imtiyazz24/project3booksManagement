@@ -2,16 +2,41 @@ const bookModel = require("../models/bookModel");
 const reviewModel = require("../models/reviewModel");
 const userModel = require("../models/userModel");
 const validator = require("../validator/validator")
-const { default: mongoose } = require("mongoose");
+const aws= require("aws-sdk")
+// const { default: mongoose } = require("mongoose");
 // const { findOneAndUpdate } = require("../models/bookModel");
 //const ObjectId = mongoose.Types.ObjectId
 
-const createBook = async function(req, res) {
+aws.config.update({
+    accessKeyId: "AKIAY3L35MCRVFM24Q7U",
+    secretAccessKey: "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",
+    region: "ap-south-1"
+})
+
+let uploadFile= async ( file) =>{
+   return new Promise( function(resolve, reject) {
+    let s3= new aws.S3({apiVersion: '2006-03-01'}); 
+
+    var uploadParams= {
+        ACL: "public-read",
+        Bucket: "classroom-training-bucket",  
+        Key: "abc/" + file.originalname,  
+        Body: file.buffer
+    }
+
+    s3.upload( uploadParams, function (err, data ){
+        if(err) {
+            return reject({"error": err})
+        }
+        return resolve(data.Location)
+    })
+})
+}
+
+const createBook = async function (req, res) {
     try {
         // body ------------------------------------------------------------------------------------------------>
         let body = req.body;
-
-
 
         const { userId, title, excerpt, category, subcategory, ISBN, releasedAt } = body
         // console.log(body)
@@ -24,7 +49,7 @@ const createBook = async function(req, res) {
         let titleCheck = await bookModel.findOne({ title: title })
         if (titleCheck)
             return res.status(400).send({ status: false, message: "Title already in used" })
-                //excerpt------------------------------------------------------------->
+        //excerpt------------------------------------------------------------->
         if (!validator.isValid(excerpt))
             return res.status(400).send({ status: false, message: "Please provide excerpt" });
         //userId--------------------------------------------------------------->
@@ -36,11 +61,11 @@ const createBook = async function(req, res) {
 
         if (!validator.isValidObjectId(userId)) return res.status(400).send({ status: false, message: "Invalid userId" })
         let userIdcheck = await userModel.findById(body.userId)
-            //  console.log(userIdcheck)
+        //  console.log(userIdcheck)
         if (!userIdcheck)
             return res.send({ status: false, mesaage: "UserId not found" })
 
-        //Authorization-if the user doesn't created the book, then won't be able to Update it.
+       // Authorization-if the user doesn't created the book, then won't be able to Update it.
         if (userId != req.userId) {
             return res.status(401).send({
                 status: false,
@@ -57,7 +82,7 @@ const createBook = async function(req, res) {
         let ISBNCheck = await bookModel.findOne({ ISBN: body.ISBN })
         if (ISBNCheck)
             return res.status(400).send({ status: false, mesaage: "ISBN is already used" })
-                //category----------------------------------------------------------------->
+        //category----------------------------------------------------------------->
         if (!validator.isValid(category))
             return res.status(400).send({ status: false, message: "Please provide category" });
         //subcategory---------------------------------------------------------------->
@@ -67,16 +92,24 @@ const createBook = async function(req, res) {
         // if (!releasedAt)
         //   return res.status(400).send({ status: false, message: "Please provide releasedAt" });
 
-        if (!validator.isValid(releasedAt)) {
-            return res.status(400).send({ status: false, message: "Enter releasedAt" })
-        }
-        if (!validator.isValidDate(releasedAt)) {
-            return res.status(400).send({ status: false, message: "Enter a valid releasedAt format - YYYY-MM-DD " })
-        }
-
+        // if (!validator.isValid(releasedAt)) {
+        //     return res.status(400).send({ status: false, message: "Enter releasedAt" })
+        // }
+        // if (!validator.isValidDate(releasedAt)) {
+        //     return res.status(400).send({ status: false, message: "Enter a valid releasedAt format - YYYY-MM-DD " })
+        // }
 
         const releasedDate = new Date().toLocaleDateString("af-ZA")
         body.releasedAt = releasedDate
+        
+        let files=req.files
+        if (!(files&&files.length>0)) {
+            return res.status(400).send({ status: false, message: " Please Provide The Profile Image" });}
+        const uploadedBookImage = await uploadFile(files[0])
+        body.coverBook=uploadedBookImage
+
+
+
 
         let createData = await bookModel.create(body);
         res.status(201).send({ status: true, message: "Success", data: createData });
@@ -101,7 +134,7 @@ const getBook = async function(req, res) {
                 return res.status(400).send({ status: false, message: "Invalid userId in params." })
             }
         }
-
+        let booksData=await bookModel.find({isDeleted:false})
         //Combinations of query params.
         if (userId || category || subcategory) {
 
@@ -117,6 +150,7 @@ const getBook = async function(req, res) {
             }
             obj.isDeleted = false
 
+
             //Searching books according to the request 
             const books = await bookModel.find(obj).select({
                     subcategory: 0,
@@ -129,10 +163,11 @@ const getBook = async function(req, res) {
                 .sort({
                     title: 1
                 });
+                // console.log(books)
             const countBooks = books.length
 
             //If no found by the specific combinations revert error msg ~-> No books found.
-            if (books == false) {
+            if (books==false) {
                 return res.status(404).send({ status: false, message: "No books found" });
             } else {
                 res.status(200).send({
@@ -142,22 +177,23 @@ const getBook = async function(req, res) {
                 })
             }
         } else {
-            return res.status(400).send({ status: false, message: "No filters applied." });
+        //     return res.status(400).send({ status: false, message: "No filters applied." });
+        res.status(200).send({status:true,data:booksData})
         }
-
-    } catch (err) {
+ 
+    } catch (err) { 
         return res.status(500).send({ status: false, Error: err.message })
-    }
+    } 
 }
 
 
 
-const getBookByParams = async function(req, res) {
+const getBookByParams = async function (req, res) {
     try {
         let bookid = req.params.bookId
-            // if(!bookid){return res.status(400).send({status:false,messsage:"BookId must be provided"})}
+        // if(!bookid){return res.status(400).send({status:false,messsage:"BookId must be provided"})}
 
-        if (!mongoose.Types.ObjectId.isValid(bookid)) { return res.status(400).send({ status: false, msg: 'Please enter correct length of bookId' }) }
+        if (!validator.isValidObjectId(bookid)) { return res.status(400).send({ status: false, msg: 'Please enter correct length of bookId' }) }
         let getBookData = await bookModel.findById({ _id: bookid })
         if (!getBookData) { return res.status(404).send({ status: false, msg: "bookId  not found" }) }
 
@@ -176,26 +212,20 @@ const getBookByParams = async function(req, res) {
     }
 };
 
-const updateBookByParams = async function(req, res) {
+const updateBookByParams = async function (req, res) {
     try {
         let bookId = req.params.bookId;
-
-        let userData = await bookModel.findById(bookId)
-            // console.log(userId)
-
+        console.log(bookId)
+        let userData = await bookModel.findById({_id:bookId})
+        console.log(userData)
         if (!validator.isValidObjectId(bookId)) { return res.status(400).send({ status: false, message: "Invalid bookId." }) }
-        // const checkBookId = await bookModel.findById(bookId)
-        // if (!checkBookId)
-        //     return res.status(404).send({ status: false, message: "book Id is not found" })
-
-
-
+  
         //Authorization-if the user doesn't created the book, then won't be able to Update it.
         if (userData.userId != req.userId) { return res.status(401).send({ status: false, message: "Unauthorized access." }) }
         //=================================isdeleted check============================>
         if (userData.isDeleted === true)
             return res.status(404).send({ status: false, message: "Data is not found or might be deleted" })
-                //===================================body ================================>
+        //===================================body ================================>
         let body = req.body;
         const { title, excerpt, ISBN, releasedAt } = body
         if (!validator.isValidRequestBody(body)) return res.status(400).send({ status: false, message: "Please provide data" });
@@ -239,7 +269,7 @@ const updateBookByParams = async function(req, res) {
 
 
 
-const deleteBookByParams = async function(req, res) {
+const deleteBookByParams = async function (req, res) {
     try {
         const params = req.params.bookId;
         // const body=req.decodedtoken

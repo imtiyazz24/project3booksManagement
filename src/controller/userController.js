@@ -77,7 +77,7 @@ const createUser = async function(req, res) {
                 if (!validator.isValid(address.pincode)) {
                     return res.status(400).send({ status: false, message: "Pincode cannot be empty." })
                 }
-                if (!/^[1-9]{6}$/.test(address.pincode))
+                if (!/^[0-9]{6}$/.test(address.pincode))
                     return res.status(400).send({ status: false, message: "Invalid pincode." })
             }
             //validation end.
